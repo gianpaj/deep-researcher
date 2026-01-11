@@ -51,6 +51,15 @@ massive-researcher/
 │       │   ├── grok_agent.py         # xAI Grok agent
 │       │   └── perplexity_agent.py   # Perplexity Search agent
 │       │
+│       ├── prompts/                  # System prompts for each agent
+│       │   ├── __init__.py
+│       │   ├── research_base.py      # Base research prompt template
+│       │   ├── openai_prompt.py      # OpenAI-specific prompt
+│       │   ├── google_prompt.py      # Google-specific prompt
+│       │   ├── grok_prompt.py        # Grok-specific prompt
+│       │   ├── perplexity_prompt.py  # Perplexity-specific prompt
+│       │   └── synthesizer_prompt.py # Final synthesizer prompt
+│       │
 │       ├── graph/                    # LangGraph orchestration
 │       │   ├── __init__.py
 │       │   ├── state.py              # Graph state definitions
@@ -59,7 +68,10 @@ massive-researcher/
 │       │
 │       ├── synthesizer/              # Result aggregation
 │       │   ├── __init__.py
-│       │   └── merger.py             # Merge and synthesize results
+│       │   ├── merger.py             # Merge and synthesize results
+│       │   ├── claim_extractor.py    # Extract claims from research
+│       │   ├── claim_verifier.py     # Cross-reference and verify claims
+│       │   └── grounding.py          # Search-based claim verification
 │       │
 │       ├── output/                   # Output generation
 │       │   ├── __init__.py
@@ -270,6 +282,492 @@ class BaseResearchAgent(ABC):
 | `GoogleResearchAgent` | Interactions API | deep-research-pro-preview | Web search, file search, citations | **$2-5** |
 | `GrokResearchAgent` | xAI Chat API | grok-4 | X/Twitter data, synthesis | $1-3 |
 | `PerplexityResearchAgent` | OpenAI-compatible | sonar-pro | Multi-query, domain filtering | $1-3 |
+
+---
+
+## System Prompts
+
+### Research Agent Prompts
+
+Each research agent receives a structured system prompt to ensure consistent, high-quality output with proper citations.
+
+#### Base Research Prompt Template (`prompts/research_base.py`)
+
+```python
+RESEARCH_SYSTEM_PROMPT_TEMPLATE = """You are an expert research analyst conducting deep research on behalf of a user.
+
+## Your Task
+Research the following topic thoroughly and provide a comprehensive, well-structured report.
+
+## Research Guidelines
+1. **Accuracy First**: Only include information you can verify. If uncertain, explicitly state the uncertainty level.
+2. **Source Quality**: Prioritize authoritative sources (academic papers, official documentation, reputable news outlets).
+3. **Recency**: Prefer recent information (2024-2025) unless historical context is needed.
+4. **Multiple Perspectives**: Include diverse viewpoints, especially on controversial topics.
+5. **Quantitative Data**: Include statistics, numbers, and data points where available.
+
+## Output Structure
+Your response MUST follow this structure:
+
+### Executive Summary
+[2-3 sentence overview of key findings]
+
+### Key Findings
+[Bulleted list of 5-10 main discoveries, each with source attribution]
+
+### Detailed Analysis
+[In-depth exploration organized by subtopic]
+
+### Data & Statistics
+[Relevant numbers, percentages, trends - with sources]
+
+### Controversies & Limitations
+[Areas of disagreement, gaps in research, or limitations]
+
+### Sources
+[List all sources with URLs in markdown format]
+
+## Citation Format
+- Inline citations: Use [Source Name](URL) format
+- Every factual claim MUST have a citation
+- Prefer primary sources over secondary
+
+## Quality Checklist
+Before submitting, verify:
+- [ ] All claims have citations
+- [ ] No speculation presented as fact
+- [ ] Multiple sources corroborate major claims
+- [ ] Recent data is prioritized
+- [ ] Controversies are acknowledged
+"""
+```
+
+#### OpenAI Deep Research Prompt (`prompts/openai_prompt.py`)
+
+```python
+OPENAI_RESEARCH_PROMPT = """You are OpenAI's Deep Research agent, powered by advanced reasoning capabilities.
+
+{BASE_RESEARCH_PROMPT}
+
+## OpenAI-Specific Instructions
+1. **Use Web Search**: Actively search for current information. Don't rely solely on training data.
+2. **Code Analysis**: If the topic involves code/technical concepts, use the code interpreter to verify claims.
+3. **Reasoning Chain**: Show your reasoning process for complex analyses.
+4. **Cross-Reference**: Verify claims across multiple authoritative sources.
+
+## Your Unique Value
+- Deep reasoning on complex topics
+- Ability to synthesize information from multiple sources
+- Technical accuracy for code/engineering topics
+- Structured analytical approach
+
+## Topic to Research
+{topic}
+
+{context_section}
+"""
+```
+
+#### Google Gemini Deep Research Prompt (`prompts/google_prompt.py`)
+
+```python
+GOOGLE_RESEARCH_PROMPT = """You are Google's Gemini Deep Research agent with access to comprehensive web search.
+
+{BASE_RESEARCH_PROMPT}
+
+## Google-Specific Instructions
+1. **Leverage Google Search**: Use your native search capabilities extensively.
+2. **Google Scholar**: For academic topics, prioritize scholarly sources.
+3. **Structured Data**: Extract and present data in tables where appropriate.
+4. **Multimodal Context**: Consider images, charts, and visual data if relevant.
+
+## Your Unique Value
+- Access to Google's comprehensive search index
+- Strong performance on factual queries
+- Excellent at structured data extraction
+- Good at synthesizing diverse source types
+
+## Citation Requirements
+- Include URLs for ALL sources
+- Prefer .edu, .gov, and established news domains
+- Note publication dates for all sources
+
+## Topic to Research
+{topic}
+
+{context_section}
+"""
+```
+
+#### Grok (xAI) Research Prompt (`prompts/grok_prompt.py`)
+
+```python
+GROK_RESEARCH_PROMPT = """You are Grok, xAI's research assistant with unique access to X/Twitter data and real-time information.
+
+{BASE_RESEARCH_PROMPT}
+
+## Grok-Specific Instructions
+1. **Real-Time Insights**: Provide the most current perspective on the topic.
+2. **Social Sentiment**: Where relevant, include public sentiment from X/Twitter discussions.
+3. **Contrarian Views**: Don't shy away from unconventional or contrarian perspectives if well-supported.
+4. **Direct Communication**: Be direct and clear, avoiding unnecessary hedging.
+
+## Your Unique Value
+- Access to real-time X/Twitter discussions and trends
+- Contrarian and independent analysis
+- Current events and breaking developments
+- Public sentiment and discourse analysis
+
+## Important Limitations
+- You do NOT have web search in this context
+- Focus on synthesis and analysis of information
+- Be clear about what you know vs. what requires external verification
+
+## Analysis Focus
+Since you cannot search the web, focus on:
+1. Analyzing the topic from first principles
+2. Providing unique perspectives
+3. Identifying key questions that need answering
+4. Synthesizing known information creatively
+
+## Topic to Research
+{topic}
+
+{context_section}
+"""
+```
+
+#### Perplexity Research Prompt (`prompts/perplexity_prompt.py`)
+
+```python
+PERPLEXITY_RESEARCH_PROMPT = """You are Perplexity's Sonar research agent, specialized in fast, accurate web search and synthesis.
+
+{BASE_RESEARCH_PROMPT}
+
+## Perplexity-Specific Instructions
+1. **Speed + Accuracy**: You're optimized for fast, accurate search results.
+2. **Citation Density**: Every paragraph should have at least one citation.
+3. **Source Diversity**: Include multiple source types (news, academic, official, expert blogs).
+4. **Query Decomposition**: Break complex topics into sub-queries for thorough coverage.
+
+## Your Unique Value
+- Fast, comprehensive web search
+- High citation density
+- Real-time information access
+- Strong at fact-checking claims
+
+## Search Strategy
+For the given topic, consider searching:
+1. "{topic}" - main query
+2. "{topic} latest research 2025"
+3. "{topic} statistics data"
+4. "{topic} expert analysis"
+5. "{topic} challenges limitations"
+
+## Topic to Research
+{topic}
+
+{context_section}
+"""
+```
+
+---
+
+### Synthesizer Agent Prompt (Final Compilation)
+
+The synthesizer agent reviews all research results, verifies claims, and produces the final report.
+
+#### Synthesizer System Prompt (`prompts/synthesizer_prompt.py`)
+
+```python
+SYNTHESIZER_SYSTEM_PROMPT = """You are the Chief Research Synthesizer - an expert at combining multiple research sources into a coherent, verified, and comprehensive report.
+
+## Your Role
+You receive research from multiple AI agents (OpenAI, Google, Grok, Perplexity) and must:
+1. **Merge** findings into a unified report
+2. **Verify** claims by cross-referencing sources
+3. **Identify** consensus vs. contradictions
+4. **Rank** claim confidence based on source agreement
+5. **Produce** a final, publication-ready document
+
+## Claim Verification Process
+
+### Step 1: Extract Claims
+For each source, extract distinct factual claims:
+- "According to [OpenAI]: Claim X (Source: URL)"
+- "According to [Google]: Claim Y (Source: URL)"
+
+### Step 2: Cross-Reference Claims
+For each major claim, check if it's:
+- ✅ **VERIFIED**: 3+ sources agree (HIGH confidence)
+- ⚠️ **LIKELY**: 2 sources agree (MEDIUM confidence)
+- ❓ **UNVERIFIED**: Only 1 source (LOW confidence - needs verification)
+- ❌ **CONTRADICTED**: Sources disagree (flag for user attention)
+
+### Step 3: Grounding Check
+Use web search to verify:
+- Claims that appear in only one source
+- Statistical claims (numbers, percentages)
+- Recent claims (events in last 6 months)
+- Controversial or surprising claims
+
+## Output Structure
+
+### 1. Executive Summary
+[3-5 sentences summarizing the most important, verified findings]
+
+### 2. Key Findings (Verified)
+| Finding | Confidence | Sources | Notes |
+|---------|------------|---------|-------|
+| Claim 1 | HIGH ✅ | OpenAI, Google, Perplexity | All sources agree |
+| Claim 2 | MEDIUM ⚠️ | Google, Perplexity | Not mentioned by others |
+| Claim 3 | CONTRADICTED ❌ | OpenAI vs Grok | Requires resolution |
+
+### 3. Detailed Analysis
+[Synthesized narrative combining all sources, with inline confidence indicators]
+
+### 4. Source Agreement Matrix
+| Topic | OpenAI | Google | Grok | Perplexity | Consensus |
+|-------|--------|--------|------|------------|-----------|
+| Topic A | ✓ | ✓ | ✓ | ✓ | STRONG |
+| Topic B | ✓ | ✓ | - | ✓ | GOOD |
+| Topic C | ✓ | ✗ | - | ✓ | DISPUTED |
+
+### 5. Contradictions & Disputes
+[Detailed analysis of where sources disagree, with context for each position]
+
+### 6. Gaps & Limitations
+[What wasn't covered, what needs more research, known limitations]
+
+### 7. Confidence Assessment
+Overall Research Confidence: [HIGH/MEDIUM/LOW]
+- Sources used: X/4
+- Claim verification rate: X%
+- Major contradictions: X
+
+### 8. Complete Bibliography
+[Deduplicated, organized by source type]
+
+## Verification Guidelines
+
+### HIGH Confidence Indicators
+- Multiple independent sources cite the same information
+- Primary sources (official reports, peer-reviewed papers)
+- Recent, dated information
+- Quantitative data with methodology
+
+### LOW Confidence Indicators
+- Single source only
+- Undated information
+- Secondary/tertiary sources
+- Vague or unquantified claims
+- Sources with known biases
+
+## Handling Contradictions
+
+When sources disagree:
+1. Present both positions fairly
+2. Note which sources support each position
+3. Check for recency (newer often more accurate)
+4. Check source authority (academic > blog)
+5. Flag for user if unresolvable
+"""
+
+SYNTHESIZER_GROUNDING_PROMPT = """## Grounding Verification Task
+
+I need to verify the following claims extracted from research sources.
+
+### Claims to Verify
+{claims_to_verify}
+
+### Instructions
+For each claim:
+1. Search for independent verification
+2. Check if the claim is accurate, partially accurate, or inaccurate
+3. Note any updates or corrections
+4. Provide confidence level
+
+### Output Format
+For each claim:
+```
+Claim: [original claim]
+Verification: [VERIFIED / PARTIALLY VERIFIED / UNVERIFIED / CONTRADICTED]
+Evidence: [what you found]
+Sources: [URLs]
+Confidence: [HIGH / MEDIUM / LOW]
+Notes: [any caveats or context]
+```
+"""
+```
+
+---
+
+### Claim Extraction & Verification (`synthesizer/claim_verifier.py`)
+
+```python
+from dataclasses import dataclass
+from enum import Enum
+from typing import List, Optional
+
+class ClaimConfidence(str, Enum):
+    HIGH = "high"           # 3+ sources agree
+    MEDIUM = "medium"       # 2 sources agree
+    LOW = "low"             # 1 source only
+    CONTRADICTED = "contradicted"  # Sources disagree
+
+@dataclass
+class ExtractedClaim:
+    claim: str
+    source: str              # "openai", "google", "grok", "perplexity"
+    citation_url: Optional[str]
+    category: str            # "statistic", "fact", "opinion", "prediction"
+
+@dataclass
+class VerifiedClaim:
+    claim: str
+    confidence: ClaimConfidence
+    supporting_sources: List[str]
+    contradicting_sources: List[str]
+    grounding_result: Optional[str]  # Result from verification search
+    final_assessment: str
+
+class ClaimVerifier:
+    """Extracts and verifies claims across multiple research sources."""
+
+    def __init__(self, grounding_client):
+        self.grounding_client = grounding_client  # Perplexity or search API
+
+    async def extract_claims(self, research_content: str, source: str) -> List[ExtractedClaim]:
+        """Extract distinct factual claims from research content."""
+        # Use LLM to extract claims
+        extraction_prompt = f"""
+        Extract all distinct factual claims from this research.
+
+        For each claim, identify:
+        1. The claim itself (one sentence)
+        2. The category: statistic, fact, opinion, or prediction
+        3. The source URL if cited
+
+        Research from {source}:
+        {research_content}
+
+        Output as JSON array:
+        [
+            {{"claim": "...", "category": "...", "citation_url": "..."}}
+        ]
+        """
+        # Implementation would call LLM here
+        pass
+
+    async def cross_reference_claims(
+        self,
+        all_claims: dict[str, List[ExtractedClaim]]
+    ) -> List[VerifiedClaim]:
+        """Cross-reference claims across sources to determine confidence."""
+
+        # Group similar claims using semantic similarity
+        claim_groups = self._group_similar_claims(all_claims)
+
+        verified_claims = []
+        for group in claim_groups:
+            sources = set(c.source for c in group)
+
+            if len(sources) >= 3:
+                confidence = ClaimConfidence.HIGH
+            elif len(sources) == 2:
+                confidence = ClaimConfidence.MEDIUM
+            else:
+                confidence = ClaimConfidence.LOW
+
+            verified_claims.append(VerifiedClaim(
+                claim=group[0].claim,  # Representative claim
+                confidence=confidence,
+                supporting_sources=list(sources),
+                contradicting_sources=[],
+                grounding_result=None,
+                final_assessment=""
+            ))
+
+        return verified_claims
+
+    async def ground_uncertain_claims(
+        self,
+        claims: List[VerifiedClaim]
+    ) -> List[VerifiedClaim]:
+        """Use search to verify low-confidence or contradicted claims."""
+
+        for claim in claims:
+            if claim.confidence in [ClaimConfidence.LOW, ClaimConfidence.CONTRADICTED]:
+                # Search for verification
+                search_result = await self.grounding_client.search(
+                    f"verify: {claim.claim}"
+                )
+                claim.grounding_result = search_result
+                claim.final_assessment = self._assess_grounding(claim, search_result)
+
+        return claims
+```
+
+---
+
+### Updated Architecture with Verification
+
+```
+                              ┌─────────────────────────────┐
+                              │        User Input           │
+                              │     (Topic + Context)       │
+                              └──────────────┬──────────────┘
+                                             │
+                                             ▼
+                              ┌─────────────────────────────┐
+                              │     LangGraph Workflow      │
+                              │   (Parallel Orchestration)  │
+                              └──────────────┬──────────────┘
+                                             │
+       ┌─────────────────────────────────────┼─────────────────────────────────────┐
+       │                                     │                                     │
+       ▼                                     ▼                                     ▼
+┌──────────────┐                     ┌──────────────┐                     ┌──────────────┐
+│    OpenAI    │                     │    Google    │                     │  Perplexity  │
+│   + Prompt   │                     │   + Prompt   │                     │   + Prompt   │
+└──────┬───────┘                     └──────┬───────┘                     └──────┬───────┘
+       │                                    │                                    │
+       └────────────────────────────────────┼────────────────────────────────────┘
+                                            │
+                                            ▼
+                              ┌─────────────────────────────┐
+                              │      Claim Extractor        │
+                              │  (Extract factual claims)   │
+                              └──────────────┬──────────────┘
+                                             │
+                                             ▼
+                              ┌─────────────────────────────┐
+                              │    Cross-Reference Engine   │
+                              │ (Compare claims across src) │
+                              └──────────────┬──────────────┘
+                                             │
+                                             ▼
+                              ┌─────────────────────────────┐
+                              │    Grounding Verifier       │
+                              │ (Search to verify claims)   │
+                              │    [Uses Perplexity API]    │
+                              └──────────────┬──────────────┘
+                                             │
+                                             ▼
+                              ┌─────────────────────────────┐
+                              │   Synthesizer Agent         │
+                              │ (Merge + confidence scores) │
+                              │    + System Prompt          │
+                              └──────────────┬──────────────┘
+                                             │
+                                             ▼
+                              ┌─────────────────────────────┐
+                              │    Final Report Generator   │
+                              │ (MD / HTML / PDF + sources) │
+                              └─────────────────────────────┘
+```
+
+---
 
 #### Google Deep Research Agent (`agents/google_agent.py`)
 
@@ -758,6 +1256,18 @@ massive-researcher/
 │   │   ├── google_agent.py     # NEW: Google Gemini Deep Research
 │   │   ├── grok_agent.py
 │   │   └── perplexity_agent.py
+│   ├── prompts/                # NEW: System prompts
+│   │   ├── research_base.py    # Base template
+│   │   ├── openai_prompt.py
+│   │   ├── google_prompt.py
+│   │   ├── grok_prompt.py
+│   │   ├── perplexity_prompt.py
+│   │   └── synthesizer_prompt.py
+│   ├── synthesizer/            # NEW: Claim verification
+│   │   ├── merger.py
+│   │   ├── claim_extractor.py
+│   │   ├── claim_verifier.py
+│   │   └── grounding.py        # Search-based verification
 │   └── utils/
 │       ├── rate_limiter.py
 │       ├── retry.py
@@ -767,7 +1277,7 @@ massive-researcher/
 ├── tests/
 │   ├── mocks/                  # NEW: Mock API responses
 │   │   ├── openai_mock.json
-│   │   ├── google_mock.json    # NEW
+│   │   ├── google_mock.json
 │   │   ├── grok_mock.json
 │   │   └── perplexity_mock.json
 │   └── ...
@@ -779,20 +1289,28 @@ massive-researcher/
 
 ### ✅ Updated Implementation Phases
 
-#### Phase 1: Project Setup (Updated)
+#### Phase 1: Project Setup
 - [ ] Create `pyproject.toml` with corrected dependencies
 - [ ] Set up `config.py` with **cost limits** and **mock mode**
 - [ ] Create `.env.example` with all API keys (including GOOGLE_API_KEY)
 - [ ] Add `Dockerfile` for containerized usage
 - [ ] Initialize directory structure
 
-#### Phase 2: Core Utilities (NEW)
+#### Phase 2: System Prompts (NEW)
+- [ ] Create `prompts/research_base.py` with base template
+- [ ] Create `prompts/openai_prompt.py` with OpenAI-specific instructions
+- [ ] Create `prompts/google_prompt.py` with Google-specific instructions
+- [ ] Create `prompts/grok_prompt.py` with Grok-specific instructions
+- [ ] Create `prompts/perplexity_prompt.py` with Perplexity-specific instructions
+- [ ] Create `prompts/synthesizer_prompt.py` with verification instructions
+
+#### Phase 3: Core Utilities
 - [ ] Implement `cost_tracker.py` with per-provider costs
 - [ ] Implement `cache.py` with disk-based caching
 - [ ] Implement `progress.py` with rich progress bars
 - [ ] Add mock response fixtures for testing (all 4 providers)
 
-#### Phase 3: Agent Implementation (Updated)
+#### Phase 4: Agent Implementation
 - [ ] Implement `BaseResearchAgent` with cost tracking hooks
 - [ ] Implement `OpenAIResearchAgent` using **Responses API** (not chat)
 - [ ] Implement `GoogleResearchAgent` using **Interactions API** with polling
@@ -800,7 +1318,32 @@ massive-researcher/
 - [ ] Implement `PerplexityResearchAgent` via **OpenAI client** with custom base_url
 - [ ] Add `rate_limiter.py` and `retry.py` utilities
 
-#### Phase 4-6: (Same as before)
+#### Phase 5: Claim Verification System (NEW)
+- [ ] Implement `claim_extractor.py` to extract claims from research
+- [ ] Implement `claim_verifier.py` to cross-reference claims across sources
+- [ ] Implement `grounding.py` for search-based verification of uncertain claims
+- [ ] Implement semantic similarity grouping for claim comparison
+- [ ] Add confidence scoring logic
+
+#### Phase 6: Synthesizer & LangGraph Workflow
+- [ ] Implement `merger.py` with full synthesis logic
+- [ ] Build LangGraph workflow with parallel research nodes
+- [ ] Add claim extraction node after research
+- [ ] Add cross-reference node
+- [ ] Add grounding verification node
+- [ ] Add final synthesis node
+
+#### Phase 7: Output Generation
+- [ ] Implement `MarkdownGenerator` with confidence indicators
+- [ ] Create Jinja2 HTML templates with verification badges
+- [ ] Implement `PDFGenerator` with WeasyPrint
+- [ ] Add source agreement matrix visualization
+
+#### Phase 8: CLI and Polish
+- [ ] Build CLI with argparse
+- [ ] Add progress indicators
+- [ ] Write README documentation
+- [ ] Create example scripts
 
 ---
 
